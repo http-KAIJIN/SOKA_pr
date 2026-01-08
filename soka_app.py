@@ -1,7 +1,7 @@
 """
 🚀 SOKA - Analyse Financière 
 Web app Python/Streamlit | yfinance | Technical Analysis | Backtesting
-Auteur: [Smia dyalk] | CMC AI Student
+Auteur: [OUSSAMA BENLAIDI] | CMC AI Student
 """
 
 import streamlit as st
@@ -16,9 +16,6 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
-# =============================================================================
-# 📊 CONFIGURATION PAGE
-# =============================================================================
 st.set_page_config(
     page_title="SOKA - Analyse Financière",
     page_icon="📈",
@@ -33,9 +30,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# =============================================================================
-# 🔧 SIDEBAR - INPUTS
-# =============================================================================
 st.sidebar.header("⚙️ Configuration")
 
 # Asset selection
@@ -63,9 +57,7 @@ show_stats = st.sidebar.checkbox("📈 Statistiques", True)
 if st.sidebar.button("🚀 ANALYSER", type="primary"):
     st.session_state.analysis_triggered = True
 
-# =============================================================================
-# 📥 DATA LOADING
-# =============================================================================
+
 @st.cache_data
 def load_data(ticker, start_date, end_date, interval="1d"):
     """Télécharge données OHLC depuis Yahoo Finance"""
@@ -81,9 +73,7 @@ def load_data(ticker, start_date, end_date, interval="1d"):
         st.error(f"❌ Erreur: {e}")
         return pd.DataFrame()
 
-# =============================================================================
-# 🔢 CALCULS RENDMENTS
-# =============================================================================
+
 def compute_returns(data):
     """Rendements arithmétiques et logarithmiques"""
     data['Return'] = data['Close'].pct_change()
@@ -91,9 +81,6 @@ def compute_returns(data):
     data.dropna(inplace=True)
     return data
 
-# =============================================================================
-# 📊 INDICATEURS TECHNIQUES
-# =============================================================================
 def add_sma(data, short_window=20, long_window=50):
     """Moyennes mobiles simples"""
     data["SMA_short"] = data["Close"].rolling(window=short_window).mean()
@@ -132,9 +119,7 @@ def add_macd(data, fast=12, slow=26, signal=9):
     data['MACD_Histogram'] = data['MACD'] - data['MACD_Signal']
     return data
 
-# =============================================================================
-# ⚔️ BACKTESTING
-# =============================================================================
+
 def backtest_sma_strategy(data, short_window=20, long_window=50):
     """Stratégie croisement SMA"""
     data["Position"] = 0
@@ -147,9 +132,7 @@ def backtest_sma_strategy(data, short_window=20, long_window=50):
     
     return data
 
-# =============================================================================
-# 📈 STATISTIQUES
-# =============================================================================
+
 def compute_detailed_stats(returns):
     """Statistiques complètes annualisées"""
     if len(returns) == 0:
@@ -171,9 +154,7 @@ def compute_detailed_stats(returns):
         'Kurtosis': returns.kurtosis()
     }
 
-# =============================================================================
-# 📊 VISUALISATIONS
-# =============================================================================
+
 def plot_price_chart(data):
     """Graphique prix + indicateurs"""
     fig = make_subplots(
@@ -242,9 +223,6 @@ def plot_backtest_results(data):
     plt.tight_layout()
     st.pyplot(fig)
 
-# =============================================================================
-# 🎯 MAIN APPLICATION
-# =============================================================================
 if 'analysis_triggered' in st.session_state and st.session_state.analysis_triggered:
     
     # Load data
@@ -267,9 +245,6 @@ if 'analysis_triggered' in st.session_state and st.session_state.analysis_trigge
         if compute_backtest:
             data = backtest_sma_strategy(data)
         
-        # =============================================================================
-        # 📋 DASHBOARD PRINCIPAL
-        # =============================================================================
         
         # KPIs
         col1, col2, col3, col4 = st.columns(4)
@@ -343,3 +318,4 @@ st.markdown("""
     <p>🎓 Projet pédagogique CMC AI | Python/Streamlit/yfinance</p>
 </div>
 """, unsafe_allow_html=True)
+
