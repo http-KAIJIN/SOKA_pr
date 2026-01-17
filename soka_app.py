@@ -1,7 +1,7 @@
 """
 🚀 SOKA - Analyse Financière 
 Web app Python/Streamlit | yfinance | Technical Analysis | Backtesting
-Auteur: [OUSSAMA BENLAIDI] | CMC AI Student
+Auteur: [Smia dyalk] | CMC AI Student
 """
 
 import streamlit as st
@@ -16,6 +16,9 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
+# =============================================================================
+# 📊 CONFIGURATION PAGE
+# =============================================================================
 st.set_page_config(
     page_title="SOKA - Analyse Financière",
     page_icon="📈",
@@ -30,6 +33,9 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# =============================================================================
+# 🔧 SIDEBAR - INPUTS
+# =============================================================================
 st.sidebar.header("⚙️ Configuration")
 
 # Asset selection
@@ -57,7 +63,9 @@ show_stats = st.sidebar.checkbox("📈 Statistiques", True)
 if st.sidebar.button("🚀 ANALYSER", type="primary"):
     st.session_state.analysis_triggered = True
 
-
+# =============================================================================
+# 📥 DATA LOADING
+# =============================================================================
 @st.cache_data
 def load_data(ticker, start_date, end_date, interval="1d"):
     """Télécharge données OHLC depuis Yahoo Finance"""
@@ -73,7 +81,9 @@ def load_data(ticker, start_date, end_date, interval="1d"):
         st.error(f"❌ Erreur: {e}")
         return pd.DataFrame()
 
-
+# =============================================================================
+# 🔢 CALCULS RENDMENTS
+# =============================================================================
 def compute_returns(data):
     """Rendements arithmétiques et logarithmiques"""
     data['Return'] = data['Close'].pct_change()
@@ -81,6 +91,9 @@ def compute_returns(data):
     data.dropna(inplace=True)
     return data
 
+# =============================================================================
+# 📊 INDICATEURS TECHNIQUES
+# =============================================================================
 def add_sma(data, short_window=20, long_window=50):
     """Moyennes mobiles simples"""
     data["SMA_short"] = data["Close"].rolling(window=short_window).mean()
@@ -119,20 +132,40 @@ def add_macd(data, fast=12, slow=26, signal=9):
     data['MACD_Histogram'] = data['MACD'] - data['MACD_Signal']
     return data
 
-
+# =============================================================================
+# ⚔️ BACKTESTING
+# =============================================================================
 def backtest_sma_strategy(data, short_window=20, long_window=50):
-    """Stratégie croisement SMA"""
+    """Stratégie croisement SMA + signaux Buy/Sell (simple)"""
+
+    # Position (1 = long, 0 = hors marché)
     data["Position"] = 0
     data.loc[data["SMA_short"] > data["SMA_long"], "Position"] = 1
-    data.loc[data["SMA_short"] < data["SMA_long"], "Position"] = -1
-    
+
+    # Colonnes vides pour les signaux
+    data["Buy_Signal"] = np.nan
+    data["Sell_Signal"] = np.nan
+
+    # Boucle simple pour détecter les changements
+    for i in range(1, len(data)):
+        if data["Position"].iloc[i] == 1 and data["Position"].iloc[i-1] == 0:
+            # entrée (Buy)
+            data["Buy_Signal"].iloc[i] = data["Close"].iloc[i]
+        elif data["Position"].iloc[i] == 0 and data["Position"].iloc[i-1] == 1:
+            # sortie (Sell)
+            data["Sell_Signal"].iloc[i] = data["Close"].iloc[i]
+
+    # Backtest performance
     data["Strategy_Return"] = data["Position"].shift(1) * data["Return"]
     data["Strategy_Cumulative"] = (1 + data["Strategy_Return"]).cumprod()
     data["Buy_Hold"] = (1 + data["Return"]).cumprod()
-    
+
     return data
 
 
+# =============================================================================
+# 📈 STATISTIQUES
+# =============================================================================
 def compute_detailed_stats(returns):
     """Statistiques complètes annualisées"""
     if len(returns) == 0:
@@ -154,7 +187,9 @@ def compute_detailed_stats(returns):
         'Kurtosis': returns.kurtosis()
     }
 
-
+# =============================================================================
+# 📊 VISUALISATIONS
+# =============================================================================
 def plot_price_chart(data):
     """Graphique prix + indicateurs"""
     fig = make_subplots(
@@ -165,36 +200,81 @@ def plot_price_chart(data):
         row_heights=[0.6, 0.2, 0.2]
     )
     
-    # Prix + SMA + Bollinger
+    # ================== PRIX ==================
     fig.add_trace(go.Candlestick(
-        x=data.index, open=data['Open'], high=data['High'],
-        low=data['Low'], close=data['Close'], name='Prix'
+        x=data.index,
+        open=data['Open'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close'],
+        name='Prix'
     ), row=1, col=1)
     
-    fig.add_trace(go.Scatter(x=data.index, y=data['SMA_short'], 
-                           name='SMA 20', line=dict(color='orange')), row=1, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=data['SMA_long'], 
-                           name='SMA 50', line=dict(color='blue')), row=1, col=1)
+    # ================== SMA ==================
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['SMA_short'],
+        name='SMA 20', line=dict(color='orange')
+    ), row=1, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['SMA_long'],
+        name='SMA 50', line=dict(color='blue')
+    ), row=1, col=1)
     
-    # Bollinger Bands
-    fig.add_trace(go.Scatter(x=data.index, y=data['BB_Upper'], 
-                           name='BB Haut', line=dict(color='gray', dash='dash')), row=1, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=data['BB_Lower'], 
-                           name='BB Bas', line=dict(color='gray', dash='dash')), row=1, col=1)
+    # ================== BOLLINGER ==================
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['BB_Upper'],
+        name='BB Haut', line=dict(color='gray', dash='dash')
+    ), row=1, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['BB_Lower'],
+        name='BB Bas', line=dict(color='gray', dash='dash')
+    ), row=1, col=1)
+
+    # ================== BUY / SELL ==================
+    fig.add_trace(go.Scatter(
+        x=data.index,
+        y=data['Buy_Signal'],
+        mode='markers',
+        marker=dict(symbol='triangle-up', size=14),
+        name='Buy'
+    ), row=1, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=data.index,
+        y=data['Sell_Signal'],
+        mode='markers',
+        marker=dict(symbol='triangle-down', size=14),
+        name='Sell'
+    ), row=1, col=1)
     
-    # RSI
-    fig.add_trace(go.Scatter(x=data.index, y=data['RSI'], 
-                           name='RSI', line=dict(color='purple')), row=2, col=1)
+    # ================== RSI ==================
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['RSI'],
+        name='RSI', line=dict(color='purple')
+    ), row=2, col=1)
+
     fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
     fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
     
-    # MACD
-    fig.add_trace(go.Scatter(x=data.index, y=data['MACD'], 
-                           name='MACD', line=dict(color='blue')), row=3, col=1)
-    fig.add_trace(go.Scatter(x=data.index, y=data['MACD_Signal'], 
-                           name='Signal', line=dict(color='red')), row=3, col=1)
+    # ================== MACD ==================
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['MACD'],
+        name='MACD', line=dict(color='blue')
+    ), row=3, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=data.index, y=data['MACD_Signal'],
+        name='Signal', line=dict(color='red')
+    ), row=3, col=1)
     
-    fig.update_layout(height=800, title_text=f"Prix et Indicateurs Techniques - {ticker}")
+    fig.update_layout(
+        height=800,
+        xaxis_rangeslider_visible=False,
+        title_text=f"Prix et Indicateurs Techniques - {ticker}"
+    )
+
     st.plotly_chart(fig, use_container_width=True)
 
 def plot_backtest_results(data):
@@ -223,6 +303,9 @@ def plot_backtest_results(data):
     plt.tight_layout()
     st.pyplot(fig)
 
+# =============================================================================
+# 🎯 MAIN APPLICATION
+# =============================================================================
 if 'analysis_triggered' in st.session_state and st.session_state.analysis_triggered:
     
     # Load data
@@ -245,6 +328,9 @@ if 'analysis_triggered' in st.session_state and st.session_state.analysis_trigge
         if compute_backtest:
             data = backtest_sma_strategy(data)
         
+        # =============================================================================
+        # 📋 DASHBOARD PRINCIPAL
+        # =============================================================================
         
         # KPIs
         col1, col2, col3, col4 = st.columns(4)
@@ -318,4 +404,3 @@ st.markdown("""
     <p>🎓 Projet pédagogique CMC AI | Python/Streamlit/yfinance</p>
 </div>
 """, unsafe_allow_html=True)
-
