@@ -70,5 +70,3 @@ Technologies & Libraries
 - **matplotlib**
 - **seaborn**
 ```bash
-git clone https://github.com/<VOTRE-USERNAME>/<VOTRE-REPO>.git
-cd <VOTRE-REPO>
