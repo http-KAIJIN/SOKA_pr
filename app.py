@@ -4,6 +4,9 @@ Web app Python/Streamlit | yfinance | Technical Analysis | Backtesting
 Auteur: [BENLAIDI OUSSAMA] | CMC AI Student
 """
 
+import re
+from datetime import datetime
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -11,10 +14,9 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import seaborn as sns
-from datetime import datetime, timedelta
-import warnings
-warnings.filterwarnings('ignore')
+
+TRADING_DAYS = 252
+_TICKER_RE = re.compile(r'^[A-Z0-9.\-\^=]{1,10}$')
 
 # =============================================================================
 # 📊 CONFIGURATION PAGE
@@ -26,12 +28,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.markdown("""
-<div style='text-align: center;'>
-    <h1 style='color: #1f77b4; font-size: 3em;'>🚀 SOKA</h1>
-    <p style='font-size: 1.2em; color: #666;'>Analyse Financière & Backtesting</p>
-</div>
-""", unsafe_allow_html=True)
+st.title("🚀 SOKA")
+st.caption("Analyse Financière & Backtesting")
 
 # =============================================================================
 # 🔧 SIDEBAR - INPUTS
@@ -60,6 +58,13 @@ compute_indicators = st.sidebar.checkbox("📊 Indicateurs techniques", True)
 compute_backtest = st.sidebar.checkbox("⚔️ Backtest SMA", True)
 show_stats = st.sidebar.checkbox("📈 Statistiques", True)
 
+st.sidebar.subheader("📐 Paramètres")
+risk_free_rate = st.sidebar.number_input(
+    "Taux sans risque (% annuel)",
+    min_value=0.0, max_value=20.0, value=0.0, step=0.25,
+    help="Taux sans risque pour le Sharpe Ratio (ex: 4.5 pour un bon du Trésor américain à 4.5%)"
+) / 100
+
 if st.sidebar.button("🚀 ANALYSER", type="primary"):
     st.session_state.analysis_triggered = True
 
@@ -72,13 +77,9 @@ def load_data(ticker, start_date, end_date, interval="1d"):
     try:
         data = yf.download(ticker, start=start_date, end=end_date, interval=interval)
         if data.empty:
-            st.error(f"❌ Aucune donnée pour {ticker}")
             return pd.DataFrame()
-        data.dropna(inplace=True)
-        st.success(f"✅ {len(data)} lignes chargées")
-        return data
-    except Exception as e:
-        st.error(f"❌ Erreur: {e}")
+        return data.dropna()
+    except Exception:
         return pd.DataFrame()
 
 # =============================================================================
@@ -88,8 +89,7 @@ def compute_returns(data):
     """Rendements arithmétiques et logarithmiques"""
     data['Return'] = data['Close'].pct_change()
     data['Log_Return'] = np.log(data['Close'] / data['Close'].shift(1))
-    data.dropna(inplace=True)
-    return data
+    return data.dropna()
 
 # =============================================================================
 # 📊 INDICATEURS TECHNIQUES
@@ -142,18 +142,10 @@ def backtest_sma_strategy(data, short_window=20, long_window=50):
     data["Position"] = 0
     data.loc[data["SMA_short"] > data["SMA_long"], "Position"] = 1
 
-    # Colonnes vides pour les signaux
-    data["Buy_Signal"] = np.nan
-    data["Sell_Signal"] = np.nan
-
-    # Boucle simple pour détecter les changements
-    for i in range(1, len(data)):
-        if data["Position"].iloc[i] == 1 and data["Position"].iloc[i-1] == 0:
-            # entrée (Buy)
-            data["Buy_Signal"].iloc[i] = data["Close"].iloc[i]
-        elif data["Position"].iloc[i] == 0 and data["Position"].iloc[i-1] == 1:
-            # sortie (Sell)
-            data["Sell_Signal"].iloc[i] = data["Close"].iloc[i]
+    # Detect transitions via diff: +1 = Buy entry, -1 = Sell exit
+    position_change = data["Position"].diff()
+    data["Buy_Signal"] = data["Close"].where(position_change == 1)
+    data["Sell_Signal"] = data["Close"].where(position_change == -1)
 
     # Backtest performance
     data["Strategy_Return"] = data["Position"].shift(1) * data["Return"]
@@ -166,20 +158,21 @@ def backtest_sma_strategy(data, short_window=20, long_window=50):
 # =============================================================================
 # 📈 STATISTIQUES
 # =============================================================================
-def compute_detailed_stats(returns):
+def compute_detailed_stats(returns, risk_free_rate=0.0):
     """Statistiques complètes annualisées"""
     if len(returns) == 0:
         return {}
-    
-    ann_return = returns.mean() * 252
-    ann_vol = returns.std() * np.sqrt(252)
-    sharpe = ann_return / ann_vol if ann_vol != 0 else 0
-    
+
+    ann_return = returns.mean() * TRADING_DAYS
+    ann_vol = returns.std() * np.sqrt(TRADING_DAYS)
+    sharpe = (ann_return - risk_free_rate) / ann_vol if ann_vol != 0 else 0
+
     return {
         'Rendement Journalier (%)': returns.mean() * 100,
         'Volatilité Journalière (%)': returns.std() * 100,
         'Rendement Annualisé (%)': ann_return * 100,
         'Volatilité Annualisée (%)': ann_vol * 100,
+        'Taux Sans Risque (%)': risk_free_rate * 100,
         'Sharpe Ratio': sharpe,
         'Min (%)': returns.min() * 100,
         'Max (%)': returns.max() * 100,
@@ -190,7 +183,7 @@ def compute_detailed_stats(returns):
 # =============================================================================
 # 📊 VISUALISATIONS
 # =============================================================================
-def plot_price_chart(data):
+def plot_price_chart(data, ticker):
     """Graphique prix + indicateurs"""
     fig = make_subplots(
         rows=3, cols=1,
@@ -307,12 +300,23 @@ def plot_backtest_results(data):
 # 🎯 MAIN APPLICATION
 # =============================================================================
 if 'analysis_triggered' in st.session_state and st.session_state.analysis_triggered:
-    
+
+    ticker_clean = ticker.strip().upper()
+    if not _TICKER_RE.match(ticker_clean):
+        st.error(
+            f"❌ Ticker invalide : « {ticker} ». "
+            "Utilisez uniquement des lettres, chiffres ou les symboles `.^-=` (max 10 caractères)."
+        )
+        st.stop()
+
     # Load data
     with st.spinner('Chargement des données...'):
-        raw_data = load_data(ticker, start_date, end_date, frequency)
-    
-    if not raw_data.empty:
+        raw_data = load_data(ticker_clean, start_date, end_date, frequency)
+
+    if raw_data.empty:
+        st.error(f"❌ Aucune donnée pour {ticker_clean}. Vérifiez le ticker et la période.")
+    elif not raw_data.empty:
+        st.success(f"✅ {len(raw_data)} lignes chargées")
         st.session_state.data = raw_data.copy()
         data = raw_data.copy()
         
@@ -335,42 +339,52 @@ if 'analysis_triggered' in st.session_state and st.session_state.analysis_trigge
         # KPIs
         col1, col2, col3, col4 = st.columns(4)
         returns = data['Return'].dropna()
-        
+
         with col1:
-            st.metric("Rendement Total (%)", 
-                     f"{(data['Strategy_Cumulative'].iloc[-1]-1)*100:.2f}%")
+            if compute_backtest and 'Strategy_Cumulative' in data.columns:
+                st.metric("Rendement Total (%)",
+                         f"{(data['Strategy_Cumulative'].iloc[-1]-1)*100:.2f}%")
+            else:
+                bh = (1 + returns).cumprod().iloc[-1] - 1
+                st.metric("Rendement Total (%)", f"{bh*100:.2f}%")
         with col2:
-            st.metric("Vol Annualisée (%)", 
-                     f"{returns.std()*np.sqrt(252)*100:.2f}%")
+            st.metric("Vol Annualisée (%)",
+                     f"{returns.std()*np.sqrt(TRADING_DAYS)*100:.2f}%")
         with col3:
-            st.metric("Sharpe Ratio", f"{compute_detailed_stats(returns)['Sharpe Ratio']:.2f}")
+            st.metric("Sharpe Ratio", f"{compute_detailed_stats(returns, risk_free_rate)['Sharpe Ratio']:.2f}")
         with col4:
             st.metric("Période", f"{len(data)} jours")
-        
+
         # Graphiques
         tab1, tab2, tab3 = st.tabs(["📈 Prix & Indicateurs", "⚔️ Backtest", "📊 Statistiques"])
-        
+
         with tab1:
-            plot_price_chart(data)
-        
+            if compute_indicators:
+                plot_price_chart(data, ticker_clean)
+            else:
+                st.info("Activez les indicateurs techniques dans la barre latérale pour afficher ce graphique.")
+
         with tab2:
-            st.subheader("Performance Stratégie vs Buy & Hold")
-            plot_backtest_results(data)
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Stratégie Final (%)", 
-                         f"{(data['Strategy_Cumulative'].iloc[-1]-1)*100:.1f}%")
-            with col2:
-                st.metric("Buy & Hold Final (%)", 
-                         f"{(data['Buy_Hold'].iloc[-1]-1)*100:.1f}%")
-        
+            if compute_backtest and 'Strategy_Cumulative' in data.columns:
+                st.subheader("Performance Stratégie vs Buy & Hold")
+                plot_backtest_results(data)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Stratégie Final (%)",
+                             f"{(data['Strategy_Cumulative'].iloc[-1]-1)*100:.1f}%")
+                with col2:
+                    st.metric("Buy & Hold Final (%)",
+                             f"{(data['Buy_Hold'].iloc[-1]-1)*100:.1f}%")
+            else:
+                st.info("Activez le Backtest SMA dans la barre latérale pour afficher ce graphique.")
+
         with tab3:
             if show_stats:
-                stats = compute_detailed_stats(returns)
+                stats = compute_detailed_stats(returns, risk_free_rate)
                 st.subheader("📊 Statistiques Détaillées")
                 st.json(stats)
-                
+
                 # Distribution
                 fig, ax = plt.subplots(figsize=(10, 6))
                 ax.hist(returns*100, bins=50, alpha=0.7, edgecolor='black')
@@ -379,28 +393,23 @@ if 'analysis_triggered' in st.session_state and st.session_state.analysis_trigge
                 ax.set_title('Distribution des Rendements')
                 ax.legend()
                 st.pyplot(fig)
-        
+
         # Données brutes
         with st.expander("📋 Données Brutes (100 dernières lignes)"):
-            st.dataframe(data[['Close', 'SMA_short', 'SMA_long', 'RSI', 
-                             'MACD', 'Position', 'Strategy_Return']].tail(100))
+            available_cols = [c for c in ['Close', 'SMA_short', 'SMA_long', 'RSI',
+                                          'MACD', 'Position', 'Strategy_Return']
+                              if c in data.columns]
+            st.dataframe(data[available_cols].tail(100))
         
         # Export
         csv = data.to_csv()
         st.download_button(
             label="💾 Télécharger CSV",
             data=csv,
-            file_name=f'SOKA_{ticker}_{start_date}_to_{end_date}.csv',
+            file_name=f'SOKA_{ticker_clean}_{start_date}_to_{end_date}.csv',
             mime='text/csv'
         )
-        
-    else:
-        st.error("❌ Impossible de charger les données")
 
 # Footer
 st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: #666;'>
-    <p>🎓 Projet pédagogique CMC AI | Python/Streamlit/yfinance</p>
-</div>
-""", unsafe_allow_html=True)
+st.caption("🎓 Projet pédagogique CMC AI | Python/Streamlit/yfinance")

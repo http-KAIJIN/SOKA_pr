@@ -1,8 +1,6 @@
-streamlit
-yfinance
-pandas
-numpy
-matplotlib
-plotly
-seaborn
-Pillow
+streamlit>=1.35,<2.0
+yfinance>=0.2,<1.0
+pandas>=2.0,<3.0
+numpy>=1.26,<3.0
+matplotlib>=3.8,<4.0
+plotly>=5.20,<6.0
